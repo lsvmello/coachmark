@@ -1,0 +1,11 @@
+:host {
+  display: block;
+}
+
+.coachmark-spotlight {
+  display: block;
+}
+
+.coachmark-spotlight path {
+  fill: var(--coachmark-overlay-color, rgba(33, 33, 33, 0.6));
+}

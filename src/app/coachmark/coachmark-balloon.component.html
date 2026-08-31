@@ -1,0 +1,58 @@
+@if (coachmark.state$ | async; as vm) {
+  @if (vm.step) {
+    <div
+      class="balloon"
+      [class.balloon--arrow-top]="vm.arrowSide === 'top'"
+      [class.balloon--arrow-bottom]="vm.arrowSide === 'bottom'"
+      cdkTrapFocus
+      [cdkTrapFocusAutoCapture]="true"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-label]="vm.step.title"
+    >
+      @if (vm.arrowSide !== 'none') {
+        <span class="balloon__arrow" [style.left.px]="arrowLeft"></span>
+      }
+
+      <h2 class="balloon__title">{{ vm.step.title }}</h2>
+      <p class="balloon__description">{{ vm.step.description }}</p>
+
+      <div class="balloon__footer">
+        @if (vm.isLast) {
+          <button
+            type="button"
+            class="balloon__cta"
+            (click)="coachmark.finish()"
+          >
+            {{ finishLabel }}
+          </button>
+        } @else {
+          <nav class="pager" aria-label="Navegação das dicas">
+            <button
+              type="button"
+              class="pager__step"
+              [disabled]="vm.isFirst"
+              (click)="coachmark.previous()"
+              aria-label="Dica anterior"
+            >
+              &#8249;
+            </button>
+
+            <span class="pager__count" aria-live="polite">
+              {{ vm.index + 1 }} de {{ vm.total }}
+            </span>
+
+            <button
+              type="button"
+              class="pager__step"
+              (click)="coachmark.next()"
+              aria-label="Próxima dica"
+            >
+              &#8250;
+            </button>
+          </nav>
+        }
+      </div>
+    </div>
+  }
+}

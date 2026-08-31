@@ -1,0 +1,10 @@
+@if (vm$ | async; as vm) {
+  <svg
+    class="coachmark-spotlight"
+    [attr.width]="vm.width"
+    [attr.height]="vm.height"
+    aria-hidden="true"
+  >
+    <path [attr.d]="vm.path" fill-rule="evenodd" />
+  </svg>
+}

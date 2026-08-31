@@ -3,10 +3,9 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Observable, combineLatest, fromEvent } from 'rxjs';
 import { auditTime, map, startWith } from 'rxjs/operators';
 
+import { SPOTLIGHT_PADDING } from './coachmark.model';
 import { CoachmarkService } from './coachmark.service';
 
-/** Folga em volta do alvo, para o recorte não encostar no conteúdo. */
-const PADDING = 8;
 const RADIUS = 8;
 
 interface SpotlightViewModel {
@@ -20,33 +19,8 @@ interface SpotlightViewModel {
   standalone: true,
   imports: [AsyncPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    @if (vm$ | async; as vm) {
-      <svg
-        class="coachmark-spotlight"
-        [attr.width]="vm.width"
-        [attr.height]="vm.height"
-        aria-hidden="true"
-      >
-        <path [attr.d]="vm.path" fill-rule="evenodd" />
-      </svg>
-    }
-  `,
-  styles: [
-    `
-      :host {
-        display: block;
-      }
-
-      .coachmark-spotlight {
-        display: block;
-      }
-
-      .coachmark-spotlight path {
-        fill: var(--coachmark-overlay-color, rgba(33, 33, 33, 0.6));
-      }
-    `,
-  ],
+  templateUrl: './coachmark-spotlight.component.html',
+  styleUrl: './coachmark-spotlight.component.scss',
 })
 export class CoachmarkSpotlightComponent {
   private readonly coachmark = inject(CoachmarkService);
@@ -79,10 +53,10 @@ export class CoachmarkSpotlightComponent {
 
 /** Retângulo arredondado desenhado no sentido inverso — o evenodd fura. */
 function holePath(rect: DOMRect): string {
-  const x = rect.left - PADDING;
-  const y = rect.top - PADDING;
-  const w = rect.width + PADDING * 2;
-  const h = rect.height + PADDING * 2;
+  const x = rect.left - SPOTLIGHT_PADDING;
+  const y = rect.top - SPOTLIGHT_PADDING;
+  const w = rect.width + SPOTLIGHT_PADDING * 2;
+  const h = rect.height + SPOTLIGHT_PADDING * 2;
   const r = Math.min(RADIUS, w / 2, h / 2);
 
   return [

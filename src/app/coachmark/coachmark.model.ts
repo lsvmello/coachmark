@@ -1,3 +1,9 @@
+/**
+ * Folga entre o alvo e o recorte do spotlight. Compartilhada com o serviço
+ * para que o balão sempre mantenha distância do recorte, não só do alvo.
+ */
+export const SPOTLIGHT_PADDING = 8;
+
 export interface CoachmarkStep {
   /** Título exibido no balão. */
   title: string;

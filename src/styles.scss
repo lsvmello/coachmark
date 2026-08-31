@@ -1,0 +1,10 @@
+/* You can add global styles to this file, and also import other style files */
+
+@import '@angular/cdk/overlay-prebuilt.css';
+
+/* O overlay do CDK aplica pointer-events: none no container.
+   O spotlight precisa capturar cliques para bloquear a página. */
+.coachmark-spotlight-pane {
+  pointer-events: auto;
+}
+

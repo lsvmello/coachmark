@@ -13,6 +13,7 @@ import {
   CoachmarkState,
   CoachmarkStep,
   EMPTY_COACHMARK_STATE,
+  SPOTLIGHT_PADDING,
 } from './coachmark.model';
 import { COACHMARK_STORAGE } from './coachmark-storage';
 import { CoachmarkBalloonComponent } from './coachmark-balloon.component';
@@ -21,6 +22,13 @@ import { CoachmarkSpotlightComponent } from './coachmark-spotlight.component';
 /** Distância entre a borda do alvo e o balão. */
 const BALLOON_GAP = 16;
 
+/**
+ * Distância entre a borda do recorte do spotlight e o balão. O recorte já
+ * é maior que o alvo em SPOTLIGHT_PADDING, então soma-se aqui para o balão
+ * não encostar visualmente no spotlight.
+ */
+const BALLOON_OFFSET = BALLOON_GAP + SPOTLIGHT_PADDING;
+
 const POSITIONS: ConnectedPosition[] = [
   // Preferência: balão abaixo do alvo.
   {
@@ -28,7 +36,7 @@ const POSITIONS: ConnectedPosition[] = [
     originY: 'bottom',
     overlayX: 'center',
     overlayY: 'top',
-    offsetY: BALLOON_GAP,
+    offsetY: BALLOON_OFFSET,
   },
   // Sem espaço embaixo: vai para cima.
   {
@@ -36,7 +44,7 @@ const POSITIONS: ConnectedPosition[] = [
     originY: 'top',
     overlayX: 'center',
     overlayY: 'bottom',
-    offsetY: -BALLOON_GAP,
+    offsetY: -BALLOON_OFFSET,
   },
 ];
 
