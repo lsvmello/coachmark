@@ -1,0 +1,300 @@
+import { ComponentPortal } from '@angular/cdk/portal';
+import {
+  ConnectedPosition,
+  Overlay,
+  OverlayRef,
+  PositionStrategy,
+} from '@angular/cdk/overlay';
+import { ElementRef, Injectable, Injector, NgZone, inject } from '@angular/core';
+import { BehaviorSubject, Observable, Subscription } from 'rxjs';
+
+import {
+  ArrowSide,
+  CoachmarkState,
+  CoachmarkStep,
+  EMPTY_COACHMARK_STATE,
+} from './coachmark.model';
+import { COACHMARK_STORAGE } from './coachmark-storage';
+import { CoachmarkBalloonComponent } from './coachmark-balloon.component';
+import { CoachmarkSpotlightComponent } from './coachmark-spotlight.component';
+
+/** Distância entre a borda do alvo e o balão. */
+const BALLOON_GAP = 16;
+
+const POSITIONS: ConnectedPosition[] = [
+  // Preferência: balão abaixo do alvo.
+  {
+    originX: 'center',
+    originY: 'bottom',
+    overlayX: 'center',
+    overlayY: 'top',
+    offsetY: BALLOON_GAP,
+  },
+  // Sem espaço embaixo: vai para cima.
+  {
+    originX: 'center',
+    originY: 'top',
+    overlayX: 'center',
+    overlayY: 'bottom',
+    offsetY: -BALLOON_GAP,
+  },
+];
+
+@Injectable({ providedIn: 'root' })
+export class CoachmarkService {
+  private readonly overlay = inject(Overlay);
+  private readonly injector = inject(Injector);
+  private readonly storage = inject(COACHMARK_STORAGE);
+  private readonly zone = inject(NgZone);
+
+  private readonly stateSubject = new BehaviorSubject<CoachmarkState>(
+    EMPTY_COACHMARK_STATE,
+  );
+  readonly state$: Observable<CoachmarkState> = this.stateSubject.asObservable();
+
+  private readonly targets = new Map<string, ElementRef<HTMLElement>>();
+  private steps: CoachmarkStep[] = [];
+  private index = 0;
+  private arrowSide: ArrowSide = 'none';
+  private targetRect: DOMRect | null = null;
+
+  private spotlightRef?: OverlayRef;
+  private balloonRef?: OverlayRef;
+  private positionSub?: Subscription;
+  private detachViewportListeners?: () => void;
+  private currentId = '';
+
+  get isOpen(): boolean {
+    return !!this.balloonRef;
+  }
+
+  // ---------------------------------------------------------------- targets
+
+  registerTarget(key: string, el: ElementRef<HTMLElement>): void {
+    this.targets.set(key, el);
+    // Se o alvo da dica atual acabou de aparecer, reposiciona.
+    if (this.isOpen && this.currentStep?.targetKey === key) {
+      this.applyStep();
+    }
+  }
+
+  unregisterTarget(key: string): void {
+    this.targets.delete(key);
+  }
+
+  // ------------------------------------------------------------------ fluxo
+
+  /**
+   * Abre o coachmark se o usuário não o viu no período configurado.
+   * Resolve false quando nada foi exibido — útil para encadear com outros
+   * avisos da tela sem empilhar modais.
+   *
+   * @param id identificador do tour (chave da persistência)
+   * @param force ignora a regra de periodicidade — útil num link "ver dicas"
+   */
+  async start(
+    id: string,
+    steps: CoachmarkStep[],
+    options: { force?: boolean } = {},
+  ): Promise<boolean> {
+    if (!steps.length || this.isOpen) return false;
+    if (!options.force && (await this.storage.hasSeenRecently(id))) return false;
+
+    this.currentId = id;
+    this.steps = steps;
+    this.index = 0;
+    this.open();
+    return true;
+  }
+
+  next(): void {
+    this.goTo(this.index + 1);
+  }
+
+  previous(): void {
+    this.goTo(this.index - 1);
+  }
+
+  goTo(index: number): void {
+    if (!this.isOpen || index < 0 || index >= this.steps.length) return;
+    this.index = index;
+    this.applyStep();
+  }
+
+  /** Conclui o tour e registra a exibição. */
+  async finish(): Promise<void> {
+    await this.storage.markAsSeen(this.currentId);
+    this.close();
+  }
+
+  /** Fecha sem registrar (ex.: navegação de rota, ESC). */
+  close(): void {
+    this.positionSub?.unsubscribe();
+    this.positionSub = undefined;
+    this.detachViewportListeners?.();
+    this.detachViewportListeners = undefined;
+
+    this.balloonRef?.dispose();
+    this.spotlightRef?.dispose();
+    this.balloonRef = undefined;
+    this.spotlightRef = undefined;
+
+    this.steps = [];
+    this.index = 0;
+    this.arrowSide = 'none';
+    this.targetRect = null;
+    this.stateSubject.next(EMPTY_COACHMARK_STATE);
+  }
+
+  // ---------------------------------------------------------------- interno
+
+  private get currentStep(): CoachmarkStep | null {
+    return this.steps[this.index] ?? null;
+  }
+
+  private get targetElement(): HTMLElement | null {
+    const key = this.currentStep?.targetKey;
+    if (!key) return null;
+    return this.targets.get(key)?.nativeElement ?? null;
+  }
+
+  private emit(): void {
+    const total = this.steps.length;
+    this.stateSubject.next({
+      step: this.currentStep,
+      index: this.index,
+      total,
+      isFirst: this.index === 0,
+      isLast: total > 0 && this.index === total - 1,
+      arrowSide: this.arrowSide,
+      targetRect: this.targetRect,
+    });
+  }
+
+  private open(): void {
+    // 1) Camada do overlay cinza com o recorte. Cobre a tela inteira e
+    //    bloqueia interação com a página.
+    this.spotlightRef = this.overlay.create({
+      positionStrategy: this.overlay.position().global(),
+      width: '100vw',
+      height: '100vh',
+      panelClass: 'coachmark-spotlight-pane',
+      disposeOnNavigation: true,
+    });
+    this.spotlightRef.attach(
+      new ComponentPortal(CoachmarkSpotlightComponent, null, this.injector),
+    );
+
+    // 2) Camada do balão, reposicionada a cada dica.
+    this.balloonRef = this.overlay.create({
+      positionStrategy: this.centeredStrategy(),
+      scrollStrategy: this.overlay.scrollStrategies.reposition(),
+      panelClass: 'coachmark-balloon-pane',
+      disposeOnNavigation: true,
+    });
+    this.balloonRef.attach(
+      new ComponentPortal(CoachmarkBalloonComponent, null, this.injector),
+    );
+
+    this.listenToViewport();
+    this.applyStep();
+  }
+
+  private applyStep(): void {
+    if (!this.balloonRef) return;
+
+    const el = this.targetElement;
+
+    this.positionSub?.unsubscribe();
+    this.positionSub = undefined;
+
+    if (!el) {
+      this.arrowSide = 'none';
+      this.targetRect = null;
+      this.balloonRef.updatePositionStrategy(this.centeredStrategy());
+      this.emit();
+      return;
+    }
+
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    const strategy = this.overlay
+      .position()
+      .flexibleConnectedTo(el)
+      .withFlexibleDimensions(false)
+      .withPush(true)
+      .withViewportMargin(12)
+      .withPositions(POSITIONS);
+
+    // A posição que o CDK escolheu é o que define para onde a seta aponta:
+    // balão colado pelo topo => alvo está embaixo => seta no topo do balão.
+    this.positionSub = strategy.positionChanges.subscribe(
+      ({ connectionPair }) => {
+        this.arrowSide = connectionPair.overlayY === 'top' ? 'top' : 'bottom';
+        this.emit();
+      },
+    );
+
+    this.balloonRef.updatePositionStrategy(strategy);
+    this.targetRect = el.getBoundingClientRect();
+    this.emit();
+  }
+
+  private centeredStrategy(): PositionStrategy {
+    return this.overlay
+      .position()
+      .global()
+      .centerHorizontally()
+      .centerVertically();
+  }
+
+  /**
+   * O recorte precisa acompanhar scroll, resize e mudanças de layout do alvo.
+   * Rodamos fora da zone e voltamos para dentro só ao emitir o estado.
+   */
+  private listenToViewport(): void {
+    let frame = 0;
+    let observed: HTMLElement | null = null;
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const el = this.targetElement;
+        const rect = el ? el.getBoundingClientRect() : null;
+        this.zone.run(() => {
+          this.targetRect = rect;
+          this.emit();
+        });
+      });
+    };
+
+    const observer = new ResizeObserver(schedule);
+    const observeTarget = () => {
+      const el = this.targetElement;
+      if (el === observed) return;
+      if (observed) observer.unobserve(observed);
+      if (el) observer.observe(el);
+      observed = el;
+    };
+
+    this.zone.runOutsideAngular(() => {
+      const onViewportChange = () => {
+        observeTarget();
+        schedule();
+      };
+
+      // capture: true para pegar scroll de containers internos, não só window.
+      window.addEventListener('scroll', onViewportChange, true);
+      window.addEventListener('resize', onViewportChange);
+      observeTarget();
+
+      this.detachViewportListeners = () => {
+        if (frame) cancelAnimationFrame(frame);
+        window.removeEventListener('scroll', onViewportChange, true);
+        window.removeEventListener('resize', onViewportChange);
+        observer.disconnect();
+      };
+    });
+  }
+}
