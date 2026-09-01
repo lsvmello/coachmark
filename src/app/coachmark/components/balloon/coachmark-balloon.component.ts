@@ -11,7 +11,7 @@ import {
 } from '@angular/core';
 import { UntilDestroy, untilDestroyed } from '@ngneat/until-destroy';
 
-import { CoachmarkService } from './coachmark.service';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 const ARROW_HALF = 8;
 const ARROW_MARGIN = 16;
@@ -26,7 +26,7 @@ const ARROW_MARGIN = 16;
   styleUrl: './coachmark-balloon.component.scss',
 })
 export class CoachmarkBalloonComponent implements OnInit {
-  protected readonly coachmark = inject(CoachmarkService);
+  protected readonly coachmarkService = inject(CoachmarkService);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly cdr = inject(ChangeDetectorRef);
 
@@ -34,9 +34,21 @@ export class CoachmarkBalloonComponent implements OnInit {
   @Input() finishLabel = 'Entendi';
 
   protected arrowLeft = 0;
+  protected finishing = false;
+
+  /**
+   * Desabilita o CTA enquanto o storage salva — o guard de verdade contra
+   * duplo registro está no finish() do serviço. Não precisa voltar pra false:
+   * finish() sempre fecha o tour no fim, o que destrói este componente.
+   */
+  protected onFinish(): void {
+    this.finishing = true;
+    this.cdr.markForCheck();
+    void this.coachmarkService.finish();
+  }
 
   ngOnInit(): void {
-    this.coachmark.state$
+    this.coachmarkService.state$
       .pipe(untilDestroyed(this))
       .subscribe(({ targetRect }) => {
         if (!targetRect) return;

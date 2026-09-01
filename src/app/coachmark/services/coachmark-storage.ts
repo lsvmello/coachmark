@@ -1,11 +1,15 @@
 import { InjectionToken, Provider } from '@angular/core';
 
 /**
- * Contrato de persistência. É assíncrono de propósito: hoje resolve na hora
- * com localStorage, amanhã pode virar uma chamada HTTP sem mudar o serviço.
+ * Contrato de persistência. É assíncrono de propósito:
+ * hoje resolve na hora, amanhã pode virar uma chamada HTTP sem mudar o serviço.
  */
 export interface CoachmarkStorage {
-  hasSeenRecently(id: string): Promise<boolean>;
+  hasSeenRecently(
+    id: string,
+    periodInDays: number,
+    maxTimesShown: number,
+  ): Promise<boolean>;
   markAsSeen(id: string): Promise<void>;
 }
 
@@ -13,9 +17,7 @@ export const COACHMARK_STORAGE = new InjectionToken<CoachmarkStorage>(
   'COACHMARK_STORAGE',
 );
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-/** Depois de exibido nesses meses, o coachmark nunca mais aparece. */
-const MAX_TIMES_SHOWN = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface StorageRecord {
   /** Quantas vezes o tour já foi concluído. */
@@ -25,22 +27,23 @@ interface StorageRecord {
 }
 
 /**
- * Regra: mostra o tour no máximo 1x por período (padrão 30 dias) e no
- * máximo MAX_TIMES_SHOWN vezes no total — depois disso, nunca mais aparece.
+ * Regra: mostra o tour no máximo 1x por período e no máximo maxTimesShown
+ * vezes no total — depois disso, nunca mais aparece. periodInDays e
+ * maxTimesShown vêm de cada chamada a start() (ver CoachmarkService), não
+ * são fixos aqui: tours diferentes podem ter cadências diferentes.
  */
 export class LocalStorageCoachmarkStorage implements CoachmarkStorage {
-  constructor(
-    private readonly periodMs: number = THIRTY_DAYS_MS,
-    private readonly maxTimesShown: number = MAX_TIMES_SHOWN,
-  ) {}
-
-  async hasSeenRecently(id: string): Promise<boolean> {
+  async hasSeenRecently(
+    id: string,
+    periodInDays: number,
+    maxTimesShown: number,
+  ): Promise<boolean> {
     const record = this.read(id);
     if (!record) return false;
 
-    if (record.timesShown >= this.maxTimesShown) return true;
+    if (record.timesShown >= maxTimesShown) return true;
 
-    return Date.now() - record.lastSeenAt < this.periodMs;
+    return Date.now() - record.lastSeenAt < periodInDays * DAY_MS;
   }
 
   async markAsSeen(id: string): Promise<void> {
@@ -84,12 +87,9 @@ export class LocalStorageCoachmarkStorage implements CoachmarkStorage {
   }
 }
 
-export function provideCoachmarkStorage(
-  periodMs?: number,
-  maxTimesShown?: number,
-): Provider {
+export function provideCoachmarkStorage(): Provider {
   return {
     provide: COACHMARK_STORAGE,
-    useFactory: () => new LocalStorageCoachmarkStorage(periodMs, maxTimesShown),
+    useFactory: () => new LocalStorageCoachmarkStorage(),
   };
 }

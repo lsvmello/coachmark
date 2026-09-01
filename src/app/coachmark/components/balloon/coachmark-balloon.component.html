@@ -1,4 +1,4 @@
-@if (coachmark.state$ | async; as vm) {
+@if (coachmarkService.state$ | async; as vm) {
   @if (vm.step) {
     <div
       class="balloon"
@@ -22,7 +22,8 @@
           <button
             type="button"
             class="balloon__cta"
-            (click)="coachmark.finish()"
+            [disabled]="finishing"
+            (click)="onFinish()"
           >
             {{ finishLabel }}
           </button>
@@ -32,7 +33,7 @@
               type="button"
               class="pager__step"
               [disabled]="vm.isFirst"
-              (click)="coachmark.previous()"
+              (click)="coachmarkService.previous()"
               aria-label="Dica anterior"
             >
               &#8249;
@@ -45,7 +46,7 @@
             <button
               type="button"
               class="pager__step"
-              (click)="coachmark.next()"
+              (click)="coachmarkService.next()"
               aria-label="Próxima dica"
             >
               &#8250;

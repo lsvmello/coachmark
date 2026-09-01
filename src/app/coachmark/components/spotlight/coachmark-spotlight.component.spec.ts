@@ -1,9 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BehaviorSubject } from 'rxjs';
 
-import { CoachmarkSpotlightComponent } from './coachmark-spotlight.component';
-import { CoachmarkState, EMPTY_COACHMARK_STATE } from './coachmark.model';
-import { CoachmarkService } from './coachmark.service';
+import { CoachmarkSpotlightComponent } from '../../components/spotlight/coachmark-spotlight.component';
+import { CoachmarkState, EMPTY_COACHMARK_STATE } from '../../models/coachmark.model';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 describe('CoachmarkSpotlightComponent', () => {
   let fixture: ComponentFixture<CoachmarkSpotlightComponent>;

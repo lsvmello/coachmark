@@ -14,13 +14,17 @@ import {
   CoachmarkStep,
   EMPTY_COACHMARK_STATE,
   SPOTLIGHT_PADDING,
-} from './coachmark.model';
+} from '../models/coachmark.model';
 import { COACHMARK_STORAGE } from './coachmark-storage';
-import { CoachmarkBalloonComponent } from './coachmark-balloon.component';
-import { CoachmarkSpotlightComponent } from './coachmark-spotlight.component';
+import { CoachmarkBalloonComponent } from '../components/balloon/coachmark-balloon.component';
+import { CoachmarkSpotlightComponent } from '../components/spotlight/coachmark-spotlight.component';
 
 /** Distância entre a borda do alvo e o balão. */
 const BALLOON_GAP = 16;
+
+/** Cadência padrão de start(), usada quando a chamada não informa a própria. */
+const DEFAULT_PERIOD_IN_DAYS = 30;
+const DEFAULT_MAX_TIMES_SHOWN = 3;
 
 /**
  * Distância entre a borda do recorte do spotlight e o balão. O recorte já
@@ -69,8 +73,12 @@ export class CoachmarkService {
   private spotlightRef?: OverlayRef;
   private balloonRef?: OverlayRef;
   private positionSub?: Subscription;
+  private overlayDetachSub?: Subscription;
   private detachViewportListeners?: () => void;
+  private syncResizeTarget?: () => void;
   private currentId = '';
+  private opening = false;
+  private finishing = false;
 
   get isOpen(): boolean {
     return !!this.balloonRef;
@@ -86,33 +94,61 @@ export class CoachmarkService {
     }
   }
 
-  unregisterTarget(key: string): void {
+  /**
+   * @param el quando informado, só remove se ainda for o elemento
+   * registrado para essa key — evita que uma key duplicada, já sobrescrita
+   * por outro elemento, seja removida pela instância antiga ao ser destruída.
+   */
+  unregisterTarget(key: string, el?: ElementRef<HTMLElement>): void {
+    if (el && this.targets.get(key) !== el) return;
+
     this.targets.delete(key);
   }
 
   // ------------------------------------------------------------------ fluxo
 
   /**
-   * Abre o coachmark se o usuário não o viu no período configurado.
-   * Resolve false quando nada foi exibido — útil para encadear com outros
-   * avisos da tela sem empilhar modais.
+   * Abre o coachmark se o usuário não o viu no período configurado. Não
+   * retorna nada: é no-op silencioso quando não há steps, quando outro tour
+   * já está aberto, ou quando o storage diz que já foi visto.
    *
    * @param id identificador do tour (chave da persistência)
    * @param force ignora a regra de periodicidade — útil num link "ver dicas"
+   * @param periodInDays janela entre exibições; padrão DEFAULT_PERIOD_IN_DAYS
+   * @param maxTimesShown quantas vezes no total; padrão DEFAULT_MAX_TIMES_SHOWN
    */
   async start(
     id: string,
     steps: CoachmarkStep[],
-    options: { force?: boolean } = {},
-  ): Promise<boolean> {
-    if (!steps.length || this.isOpen) return false;
-    if (!options.force && (await this.storage.hasSeenRecently(id))) return false;
+    options: {
+      force?: boolean;
+      periodInDays?: number;
+      maxTimesShown?: number;
+    } = {},
+  ): Promise<void> {
+    // opening cobre a janela do await abaixo, em que isOpen ainda é false e
+    // uma segunda chamada abriria um segundo par de overlays.
+    if (!steps.length || this.isOpen || this.opening) return;
 
-    this.currentId = id;
-    this.steps = steps;
-    this.index = 0;
-    this.open();
-    return true;
+    this.opening = true;
+    try {
+      const periodInDays = options.periodInDays ?? DEFAULT_PERIOD_IN_DAYS;
+      const maxTimesShown = options.maxTimesShown ?? DEFAULT_MAX_TIMES_SHOWN;
+
+      if (
+        !options.force &&
+        (await this.storage.hasSeenRecently(id, periodInDays, maxTimesShown))
+      ) {
+        return;
+      }
+
+      this.currentId = id;
+      this.steps = steps;
+      this.index = 0;
+      this.open();
+    } finally {
+      this.opening = false;
+    }
   }
 
   next(): void {
@@ -131,12 +167,26 @@ export class CoachmarkService {
 
   /** Conclui o tour e registra a exibição. */
   async finish(): Promise<void> {
-    await this.storage.markAsSeen(this.currentId);
-    this.close();
+    if (this.finishing || !this.isOpen) return;
+
+    this.finishing = true;
+    try {
+      await this.storage.markAsSeen(this.currentId);
+    } catch {
+      // Falhar ao registrar não pode prender o usuário atrás do overlay:
+      // fecha mesmo assim e o tour volta no próximo período.
+    } finally {
+      this.finishing = false;
+      this.close();
+    }
   }
 
-  /** Fecha sem registrar (ex.: navegação de rota, ESC). */
   close(): void {
+    // Desinscreve antes de dispose(): o dispose abaixo também aciona
+    // detachments(), e não queremos reentrar em close() por causa disso.
+    this.overlayDetachSub?.unsubscribe();
+    this.overlayDetachSub = undefined;
+
     this.positionSub?.unsubscribe();
     this.positionSub = undefined;
     this.detachViewportListeners?.();
@@ -204,12 +254,22 @@ export class CoachmarkService {
       new ComponentPortal(CoachmarkBalloonComponent, null, this.injector),
     );
 
+    // disposeOnNavigation destrói os overlays sem passar por close(); sem isso,
+    // isOpen ficaria travado em true e bloquearia qualquer tour futuro.
+    this.overlayDetachSub = this.balloonRef.detachments().subscribe(() => {
+      this.close();
+    });
+
     this.listenToViewport();
     this.applyStep();
   }
 
   private applyStep(): void {
     if (!this.balloonRef) return;
+
+    // Troca o alvo observado já aqui — sem isso, um resize por layout do novo
+    // alvo só seria percebido no próximo scroll/resize da janela.
+    this.syncResizeTarget?.();
 
     const el = this.targetElement;
 
@@ -286,6 +346,8 @@ export class CoachmarkService {
       observed = el;
     };
 
+    this.syncResizeTarget = observeTarget;
+
     this.zone.runOutsideAngular(() => {
       const onViewportChange = () => {
         observeTarget();
@@ -302,6 +364,7 @@ export class CoachmarkService {
         window.removeEventListener('scroll', onViewportChange, true);
         window.removeEventListener('resize', onViewportChange);
         observer.disconnect();
+        this.syncResizeTarget = undefined;
       };
     });
   }

@@ -1,8 +1,8 @@
 import { Component, ElementRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { CoachmarkTargetDirective } from './coachmark-target.directive';
-import { CoachmarkService } from './coachmark.service';
+import { CoachmarkTargetDirective } from '../../components/target/coachmark-target.directive';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 @Component({
   standalone: true,
@@ -15,14 +15,14 @@ class HostComponent {
 }
 
 describe('CoachmarkTargetDirective', () => {
-  let coachmarkSpy: { registerTarget: jest.Mock; unregisterTarget: jest.Mock };
+  let coachmarkServiceSpy: { registerTarget: jest.Mock; unregisterTarget: jest.Mock };
 
   beforeEach(() => {
-    coachmarkSpy = { registerTarget: jest.fn(), unregisterTarget: jest.fn() };
+    coachmarkServiceSpy = { registerTarget: jest.fn(), unregisterTarget: jest.fn() };
     TestBed.configureTestingModule({
       imports: [HostComponent],
       providers: [
-        { provide: CoachmarkService, useValue: coachmarkSpy },
+        { provide: CoachmarkService, useValue: coachmarkServiceSpy },
         { provide: ElementRef, useValue: new ElementRef(document.createElement('div')) },
         CoachmarkTargetDirective,
       ],
@@ -33,7 +33,7 @@ describe('CoachmarkTargetDirective', () => {
     const fixture = TestBed.createComponent(HostComponent);
     fixture.detectChanges();
 
-    expect(coachmarkSpy.registerTarget).toHaveBeenCalledWith(
+    expect(coachmarkServiceSpy.registerTarget).toHaveBeenCalledWith(
       'filtro-data',
       expect.anything(),
     );
@@ -46,8 +46,11 @@ describe('CoachmarkTargetDirective', () => {
     fixture.componentInstance.key = 'resumo';
     fixture.detectChanges();
 
-    expect(coachmarkSpy.unregisterTarget).toHaveBeenCalledWith('filtro-data');
-    expect(coachmarkSpy.registerTarget).toHaveBeenCalledWith(
+    expect(coachmarkServiceSpy.unregisterTarget).toHaveBeenCalledWith(
+      'filtro-data',
+      expect.anything(),
+    );
+    expect(coachmarkServiceSpy.registerTarget).toHaveBeenCalledWith(
       'resumo',
       expect.anything(),
     );
@@ -60,7 +63,10 @@ describe('CoachmarkTargetDirective', () => {
     fixture.componentInstance.show = false;
     fixture.detectChanges();
 
-    expect(coachmarkSpy.unregisterTarget).toHaveBeenCalledWith('filtro-data');
+    expect(coachmarkServiceSpy.unregisterTarget).toHaveBeenCalledWith(
+      'filtro-data',
+      expect.anything(),
+    );
   });
 
   it('does not register when the key is falsy', () => {
@@ -76,7 +82,7 @@ describe('CoachmarkTargetDirective', () => {
       },
     });
 
-    expect(coachmarkSpy.registerTarget).not.toHaveBeenCalled();
+    expect(coachmarkServiceSpy.registerTarget).not.toHaveBeenCalled();
   });
 
   it('ignores ngOnChanges calls unrelated to the key input', () => {
@@ -84,13 +90,13 @@ describe('CoachmarkTargetDirective', () => {
 
     directive.ngOnChanges({});
 
-    expect(coachmarkSpy.registerTarget).not.toHaveBeenCalled();
+    expect(coachmarkServiceSpy.registerTarget).not.toHaveBeenCalled();
   });
 
   it('does nothing when destroyed without ever registering a key', () => {
     const directive = TestBed.inject(CoachmarkTargetDirective);
 
     expect(() => directive.ngOnDestroy()).not.toThrow();
-    expect(coachmarkSpy.unregisterTarget).not.toHaveBeenCalled();
+    expect(coachmarkServiceSpy.unregisterTarget).not.toHaveBeenCalled();
   });
 });

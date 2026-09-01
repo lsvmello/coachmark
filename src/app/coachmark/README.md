@@ -21,15 +21,12 @@ No `styles.scss` global:
 No `app.config.ts`:
 
 ```ts
-import { provideCoachmarkStorage } from './coachmark/coachmark-storage';
+import { provideCoachmarkStorage } from './coachmark/services/coachmark-storage';
 
 export const appConfig: ApplicationConfig = {
-  providers: [provideCoachmarkStorage()], // padrão: 1x/mês, por até 3 meses
+  providers: [provideCoachmarkStorage()],
 };
 ```
-
-`provideCoachmarkStorage(periodMs?, maxTimesShown?)` aceita sobrescrever os
-dois parâmetros, caso um tour específico precise de outra janela.
 
 ## Uso
 
@@ -44,10 +41,10 @@ E dispare o tour:
 
 ```ts
 export class DashboardComponent implements AfterViewInit {
-  private readonly coachmark = inject(CoachmarkService);
+  private readonly coachmarkService = inject(CoachmarkService);
 
   ngAfterViewInit(): void {
-    this.coachmark.start('dashboard-v1', [
+    this.coachmarkService.start('dashboard-v1', [
       {
         title: 'Bem-vindo ao novo painel',
         description: 'Reorganizamos a tela para você achar as informações mais rápido.',
@@ -67,8 +64,9 @@ export class DashboardComponent implements AfterViewInit {
 }
 ```
 
-`start()` é assíncrono e resolve `false` quando o coachmark não foi exibido —
-útil para encadear com outros avisos da tela sem empilhar modais.
+`start()` não retorna nada. É um no-op silencioso quando não há steps, quando
+o storage diz que o tour já foi visto no período, ou quando já existe um tour
+aberto — a ideia é **um tour por tela**, então basta chamar e seguir a vida.
 
 ## Pontos de atenção
 
@@ -79,21 +77,16 @@ export class DashboardComponent implements AfterViewInit {
   conteúdo mudar, sem apagar o storage de ninguém.
 - **Trocar para API** é só fornecer outra implementação de `CoachmarkStorage`
   no token `COACHMARK_STORAGE`; nada mais muda.
-- **Regra de exibição**: o tour aparece no máximo 1x por período (30 dias por
-  padrão) e no máximo 3 vezes no total — depois disso, `hasSeenRecently`
-  passa a bloquear para sempre. `markAsSeen` só é chamado em `finish()`
-  (última dica), então fechar no meio do tour não conta como exibição.
-- **Sem tecla Esc**: o componente é usado em app mobile (webview), então não
-  há listener de teclado para fechar o balão. Fechar antes do fim só é
-  possível chamando `coachmark.close()` explicitamente (ex.: botão de
-  fechar ou navegação de rota).
-- **Espaçamento balão × spotlight**: o offset do balão soma `BALLOON_GAP`
-  (distância do alvo) com `SPOTLIGHT_PADDING` (folga do recorte), então o
-  balão nunca fica encostado no recorte do spotlight, só no alvo.
-- **Rota trocando com o tour aberto**: os overlays usam `disposeOnNavigation`,
-  mas chame `coachmark.close()` no `ngOnDestroy` da tela se o tour for específico dela.
-- **Module federation**: `CoachmarkService` é `providedIn: 'root'`. Se o
-  remote tiver o próprio injector raiz, cada MFE ganha uma instância — e a
-  diretiva de um MFE não vai achar o serviço do outro. Mantenha o tour
-  inteiro dentro de um mesmo MFE, ou promova o serviço para um pacote
-  compartilhado (`shared` no webpack config) para garantir instância única.
+- **Regra de exibição**: o tour aparece no máximo 1x por período e no máximo
+  N vezes no total — depois disso, `hasSeenRecently` passa a bloquear para
+  sempre. Período e quantidade vêm de cada chamada a `start()`, não do
+  provider: `start(id, steps, { periodInDays?, maxTimesShown? })`, com padrão
+  30 dias / 3 vezes quando omitidos. Assim cada tela escolhe a própria
+  cadência:
+
+  ```ts
+  this.coachmarkService.start('tour-quinzenal', steps, { periodInDays: 15 });
+  ```
+
+  `markAsSeen` só é chamado em `finish()` (última dica), então fechar no meio
+  do tour não conta como exibição.

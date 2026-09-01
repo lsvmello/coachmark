@@ -7,7 +7,7 @@ import {
   SimpleChanges,
   inject,
 } from '@angular/core';
-import { CoachmarkService } from './coachmark.service';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 /**
  * Marca um elemento como alvo de destaque:
@@ -23,8 +23,8 @@ import { CoachmarkService } from './coachmark.service';
 export class CoachmarkTargetDirective implements OnChanges, OnDestroy {
   @Input({ required: true, alias: 'coachmarkTarget' }) key!: string;
 
-  private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly coachmark = inject(CoachmarkService);
+  private readonly targetRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly coachmarkService = inject(CoachmarkService);
 
   private registeredKey: string | null = null;
 
@@ -38,7 +38,7 @@ export class CoachmarkTargetDirective implements OnChanges, OnDestroy {
     this.unregister();
 
     if (this.key) {
-      this.coachmark.registerTarget(this.key, this.el);
+      this.coachmarkService.registerTarget(this.key, this.targetRef);
       this.registeredKey = this.key;
     }
   }
@@ -49,7 +49,7 @@ export class CoachmarkTargetDirective implements OnChanges, OnDestroy {
 
   private unregister(): void {
     if (this.registeredKey === null) return;
-    this.coachmark.unregisterTarget(this.registeredKey);
+    this.coachmarkService.unregisterTarget(this.registeredKey, this.targetRef);
     this.registeredKey = null;
   }
 }

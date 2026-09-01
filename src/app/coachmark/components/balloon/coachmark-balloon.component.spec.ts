@@ -2,8 +2,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BehaviorSubject } from 'rxjs';
 
 import { CoachmarkBalloonComponent } from './coachmark-balloon.component';
-import { CoachmarkState, EMPTY_COACHMARK_STATE } from './coachmark.model';
-import { CoachmarkService } from './coachmark.service';
+import { CoachmarkState, EMPTY_COACHMARK_STATE } from '../../models/coachmark.model';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 function rect(overrides: Partial<DOMRect> = {}): DOMRect {
   return {
@@ -118,6 +118,39 @@ describe('CoachmarkBalloonComponent', () => {
 
     cta!.click();
     expect(coachmarkSpy.finish).toHaveBeenCalled();
+  });
+
+  it('disables the finish button while the tour is being recorded, so a double click cannot fire twice', () => {
+    let resolveFinish!: () => void;
+    coachmarkSpy.finish.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveFinish = resolve;
+      }),
+    );
+    state$.next({
+      step: { title: 'T', description: 'D' },
+      index: 1,
+      total: 2,
+      isFirst: false,
+      isLast: true,
+      arrowSide: 'none',
+      targetRect: null,
+    });
+    fixture.detectChanges();
+
+    const cta = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '.balloon__cta',
+    )!;
+
+    cta.click();
+    fixture.detectChanges();
+
+    expect(cta.disabled).toBe(true);
+
+    cta.click();
+    expect(coachmarkSpy.finish).toHaveBeenCalledTimes(1);
+
+    resolveFinish();
   });
 
   it('uses a custom finish label when provided', () => {

@@ -3,8 +3,8 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Observable, combineLatest, fromEvent } from 'rxjs';
 import { auditTime, map, startWith } from 'rxjs/operators';
 
-import { SPOTLIGHT_PADDING } from './coachmark.model';
-import { CoachmarkService } from './coachmark.service';
+import { SPOTLIGHT_PADDING } from '../../models/coachmark.model';
+import { CoachmarkService } from '../../services/coachmark.service';
 
 const RADIUS = 8;
 
@@ -23,16 +23,16 @@ interface SpotlightViewModel {
   styleUrl: './coachmark-spotlight.component.scss',
 })
 export class CoachmarkSpotlightComponent {
-  private readonly coachmark = inject(CoachmarkService);
+  private readonly coachmarkService = inject(CoachmarkService);
 
   private readonly viewportSize$ = fromEvent(window, 'resize').pipe(
-    auditTime(16),
-    startWith(null),
+    auditTime(16),   // ~1 frame em 60fps (1000ms / 60 ≈ 16.67ms)
+    startWith(null), // Garante a emissão inicial com o tamanho atual da viewport
     map(() => ({ width: window.innerWidth, height: window.innerHeight })),
   );
 
   protected readonly vm$: Observable<SpotlightViewModel> = combineLatest([
-    this.coachmark.state$,
+    this.coachmarkService.state$,
     this.viewportSize$,
   ]).pipe(
     map(([state, { width, height }]) => {

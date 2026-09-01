@@ -1,8 +1,8 @@
 import { ElementRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { CoachmarkStep, CoachmarkState } from './coachmark.model';
-import { COACHMARK_STORAGE, CoachmarkStorage } from './coachmark-storage';
+import { CoachmarkStep, CoachmarkState } from '../models/coachmark.model';
+import { COACHMARK_STORAGE, CoachmarkStorage } from '../services/coachmark-storage';
 import { CoachmarkService } from './coachmark.service';
 
 function makeStorageMock(): jest.Mocked<CoachmarkStorage> {
@@ -60,30 +60,69 @@ describe('CoachmarkService', () => {
   });
 
   it('does not start when there are no steps', async () => {
-    await expect(service.start('empty', [])).resolves.toBe(false);
+    await service.start('empty', []);
+
     expect(service.isOpen).toBe(false);
     expect(storage.hasSeenRecently).not.toHaveBeenCalled();
   });
 
-  it('does not start twice while already open', async () => {
-    await expect(service.start('tour', STEPS)).resolves.toBe(true);
-    await expect(service.start('tour', STEPS)).resolves.toBe(false);
+  it('is a silent no-op when another tour is already open', async () => {
+    await service.start('tour', STEPS);
+    expect(service.isOpen).toBe(true);
+
+    await service.start('outro-tour', STEPS);
+
+    // Não reconsulta o storage nem troca o tour em exibição.
     expect(storage.hasSeenRecently).toHaveBeenCalledTimes(1);
+    expect(latestState().step).toEqual(STEPS[0]);
+  });
+
+  it('checks storage with the default 30-day / 3x cadence when options omit them', async () => {
+    await service.start('tour', STEPS);
+
+    expect(storage.hasSeenRecently).toHaveBeenCalledWith('tour', 30, 3);
+  });
+
+  it('forwards a custom periodInDays/maxTimesShown to storage', async () => {
+    await service.start('tour', STEPS, { periodInDays: 15, maxTimesShown: 1 });
+
+    expect(storage.hasSeenRecently).toHaveBeenCalledWith('tour', 15, 1);
+  });
+
+  it('only opens one pair of overlays when start() is called twice across the storage check', async () => {
+    let resolveHasSeenRecently!: (seen: boolean) => void;
+    storage.hasSeenRecently.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHasSeenRecently = resolve;
+      }),
+    );
+
+    const first = service.start('tour', STEPS);
+    const second = service.start('tour', STEPS);
+
+    // A segunda chamada cai no guard `opening` e nem chega no storage.
+    expect(storage.hasSeenRecently).toHaveBeenCalledTimes(1);
+
+    resolveHasSeenRecently(false);
+    await Promise.all([first, second]);
+
+    expect(service.isOpen).toBe(true);
   });
 
   it('does not start when storage says it was already seen recently', async () => {
     storage.hasSeenRecently.mockResolvedValue(true);
 
-    await expect(service.start('tour', STEPS)).resolves.toBe(false);
+    await service.start('tour', STEPS);
+
     expect(service.isOpen).toBe(false);
+    expect(latestState().step).toBeNull();
   });
 
   it('starts anyway when force is true, even if seen recently', async () => {
     storage.hasSeenRecently.mockResolvedValue(true);
 
-    await expect(
-      service.start('tour', STEPS, { force: true }),
-    ).resolves.toBe(true);
+    await service.start('tour', STEPS, { force: true });
+
     expect(service.isOpen).toBe(true);
     expect(storage.hasSeenRecently).not.toHaveBeenCalled();
   });
@@ -167,12 +206,84 @@ describe('CoachmarkService', () => {
     expect(() => service.unregisterTarget('alvo')).not.toThrow();
   });
 
+  it('removes the target, so a later tour no longer finds it', async () => {
+    const targetRef = makeTargetRef();
+    service.registerTarget('alvo', targetRef);
+    service.unregisterTarget('alvo', targetRef);
+
+    await service.start('tour', STEPS);
+    service.next(); // passo 2 aponta para 'alvo'
+
+    expect(latestState().targetRect).toBeNull();
+    expect(latestState().arrowSide).toBe('none');
+  });
+
+  it('does not remove a target overwritten by a duplicate key when the stale instance unregisters', async () => {
+    const stale = makeTargetRef({ left: 1 });
+    const live = makeTargetRef({ left: 99 });
+    const stepsWithDupKey: CoachmarkStep[] = [
+      { title: 'T', description: 'D', targetKey: 'dup' },
+    ];
+
+    service.registerTarget('dup', stale);
+    service.registerTarget('dup', live); // segundo elemento assume a mesma key
+
+    // Instância antiga, já sobrescrita, tenta se desregistrar ao ser destruída.
+    service.unregisterTarget('dup', stale);
+
+    await service.start('tour', stepsWithDupKey);
+
+    expect(latestState().targetRect?.left).toBe(99);
+  });
+
   it('marks the tour as seen and closes when finish() is called', async () => {
     await service.start('tour', STEPS);
 
     await service.finish();
 
     expect(storage.markAsSeen).toHaveBeenCalledWith('tour');
+    expect(service.isOpen).toBe(false);
+    expect(latestState().step).toBeNull();
+  });
+
+  it('records the tour only once when finish() is called twice while the storage is still saving', async () => {
+    let resolveMarkAsSeen!: () => void;
+    storage.markAsSeen.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveMarkAsSeen = resolve;
+      }),
+    );
+    await service.start('tour', STEPS);
+
+    // Duplo clique no CTA: a segunda chamada cai no guard `finishing`.
+    const first = service.finish();
+    const second = service.finish();
+
+    expect(storage.markAsSeen).toHaveBeenCalledTimes(1);
+
+    resolveMarkAsSeen();
+    await Promise.all([first, second]);
+
+    expect(storage.markAsSeen).toHaveBeenCalledTimes(1);
+    expect(service.isOpen).toBe(false);
+  });
+
+  it('does not re-record the previous tour when finish() is called with nothing open', async () => {
+    await service.start('tour', STEPS);
+    await service.finish();
+    storage.markAsSeen.mockClear();
+
+    await service.finish();
+
+    expect(storage.markAsSeen).not.toHaveBeenCalled();
+  });
+
+  it('still closes the tour when the storage fails to record it', async () => {
+    storage.markAsSeen.mockRejectedValue(new Error('offline'));
+    await service.start('tour', STEPS);
+
+    await expect(service.finish()).resolves.toBeUndefined();
+
     expect(service.isOpen).toBe(false);
     expect(latestState().step).toBeNull();
   });
@@ -217,7 +328,15 @@ describe('CoachmarkService', () => {
     expect(latestState().targetRect?.width).toBe(110);
   });
 
-  it('stops observing the previous target and observes the new one once the step changes', async () => {
+  it('re-syncs the resize observer immediately when the step changes, without waiting for a window event', async () => {
+    const ResizeObserverCtor = (
+      globalThis as unknown as {
+        ResizeObserver: { prototype: { observe: unknown; unobserve: unknown } };
+      }
+    ).ResizeObserver;
+    const observeSpy = jest.spyOn(ResizeObserverCtor.prototype, 'observe' as never);
+    const unobserveSpy = jest.spyOn(ResizeObserverCtor.prototype, 'unobserve' as never);
+
     const stepsWithTwoTargets: CoachmarkStep[] = [
       { title: 'Passo 1', description: 'D1', targetKey: 'primeiro' },
       { title: 'Passo 2', description: 'D2', targetKey: 'segundo' },
@@ -228,14 +347,16 @@ describe('CoachmarkService', () => {
     service.registerTarget('segundo', second);
 
     await service.start('tour', stepsWithTwoTargets);
-    window.dispatchEvent(new Event('resize'));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(observeSpy).toHaveBeenCalledWith(first.nativeElement);
 
     service.next();
-    window.dispatchEvent(new Event('resize'));
-    await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    expect(latestState().targetRect).toBeTruthy();
+    // No window resize/scroll dispatched: the switch must happen synchronously.
+    expect(unobserveSpy).toHaveBeenCalledWith(first.nativeElement);
+    expect(observeSpy).toHaveBeenCalledWith(second.nativeElement);
+
+    observeSpy.mockRestore();
+    unobserveSpy.mockRestore();
   });
 
   it('cancels a pending viewport frame when the tour closes before it fires', async () => {
@@ -263,5 +384,35 @@ describe('CoachmarkService', () => {
   it('applyStep is a no-op before the tour has ever been opened (defensive)', () => {
     const internal = service as unknown as { applyStep: () => void };
     expect(() => internal.applyStep()).not.toThrow();
+  });
+
+  it('resets its own state when the overlay is detached outside of close() (e.g. disposeOnNavigation)', async () => {
+    await service.start('tour', STEPS);
+    expect(service.isOpen).toBe(true);
+
+    const internal = service as unknown as { balloonRef: { dispose: () => void } };
+    internal.balloonRef.dispose();
+
+    expect(service.isOpen).toBe(false);
+    expect(latestState().step).toBeNull();
+  });
+
+  it('does not blow up when close() is called after the overlay already auto-disposed', async () => {
+    await service.start('tour', STEPS);
+
+    const internal = service as unknown as { balloonRef: { dispose: () => void } };
+    internal.balloonRef.dispose();
+
+    expect(() => service.close()).not.toThrow();
+  });
+
+  it('does not re-enter close() when disposing the overlay from within close() itself', async () => {
+    await service.start('tour', STEPS);
+    const closeSpy = jest.spyOn(service, 'close');
+
+    service.close();
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    closeSpy.mockRestore();
   });
 });

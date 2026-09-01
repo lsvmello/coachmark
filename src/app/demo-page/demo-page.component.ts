@@ -1,7 +1,7 @@
 import { Component, AfterViewInit, inject } from '@angular/core';
 
-import { CoachmarkService } from '../coachmark/coachmark.service';
-import { CoachmarkTargetDirective } from '../coachmark/coachmark-target.directive';
+import { CoachmarkService } from '../coachmark/services/coachmark.service';
+import { CoachmarkTargetDirective } from '../coachmark/components/target/coachmark-target.directive';
 
 @Component({
   selector: 'app-demo-page',
@@ -11,7 +11,7 @@ import { CoachmarkTargetDirective } from '../coachmark/coachmark-target.directiv
   styleUrl: './demo-page.component.scss',
 })
 export class DemoPageComponent implements AfterViewInit {
-  private readonly coachmark = inject(CoachmarkService);
+  private readonly coachmarkService = inject(CoachmarkService);
 
   ngAfterViewInit(): void {
     this.startTour();
@@ -22,7 +22,7 @@ export class DemoPageComponent implements AfterViewInit {
   }
 
   private startTour(options: { force?: boolean } = {}): void {
-    this.coachmark.start(
+    this.coachmarkService.start(
       'dashboard-v1',
       [
         {
@@ -34,6 +34,11 @@ export class DemoPageComponent implements AfterViewInit {
           title: 'Filtre pelo período',
           description: 'Escolha o intervalo de datas que quer analisar.',
           targetKey: 'filtro-data',
+        },
+        {
+          title: 'Exporte quando quiser',
+          description: 'Baixe um resumo em PDF do período selecionado.',
+          targetKey: 'exportar',
         },
         {
           title: 'Acompanhe o resumo',
