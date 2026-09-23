@@ -1,7 +1,7 @@
 import { AsyncPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-import { Observable, combineLatest, fromEvent } from 'rxjs';
-import { auditTime, map, startWith } from 'rxjs/operators';
+import { Observable, animationFrameScheduler, combineLatest, fromEvent } from 'rxjs';
+import { map, startWith, throttleTime } from 'rxjs/operators';
 
 import { SPOTLIGHT_PADDING } from '../../models/coachmark.model';
 import { CoachmarkService } from '../../services/coachmark.service';
@@ -26,7 +26,7 @@ export class CoachmarkSpotlightComponent {
   private readonly coachmarkService = inject(CoachmarkService);
 
   private readonly viewportSize$ = fromEvent(window, 'resize').pipe(
-    auditTime(16),   // ~1 frame em 60fps (1000ms / 60 ≈ 16.67ms)
+    throttleTime(0, animationFrameScheduler, { trailing: true }), // amostra a cada frame, sem assumir 60fps
     startWith(null), // Garante a emissão inicial com o tamanho atual da viewport
     map(() => ({ width: window.innerWidth, height: window.innerHeight })),
   );
