@@ -17,9 +17,9 @@ export const COACHMARK_STORAGE = new InjectionToken<CoachmarkStorage>(
   'COACHMARK_STORAGE',
 );
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
-interface StorageRecord {
+export interface StorageRecord {
   /** Quantas vezes o tour já foi concluído. */
   timesShown: number;
   /** Timestamp da última exibição, para respeitar a janela de 1x por período. */
@@ -57,18 +57,8 @@ export class LocalStorageCoachmarkStorage implements CoachmarkStorage {
 
   private read(id: string): StorageRecord | null {
     try {
-      const raw = localStorage.getItem(this.key(id));
-      if (raw === null) return null;
-
-      const parsed = JSON.parse(raw) as Partial<StorageRecord>;
-      if (
-        typeof parsed.timesShown !== 'number' ||
-        typeof parsed.lastSeenAt !== 'number'
-      ) {
-        return null;
-      }
-
-      return parsed as StorageRecord;
+      const raw = localStorage.getItem(storageKey(id));
+      return parseStorageRecord(raw);
     } catch {
       return null;
     }
@@ -76,14 +66,10 @@ export class LocalStorageCoachmarkStorage implements CoachmarkStorage {
 
   private write(id: string, record: StorageRecord): void {
     try {
-      localStorage.setItem(this.key(id), JSON.stringify(record));
+      localStorage.setItem(storageKey(id), JSON.stringify(record));
     } catch {
       // Navegação privada ou storage cheio: exibir de novo é melhor que quebrar.
     }
-  }
-
-  private key(id: string): string {
-    return `coachmark:${id}:seen`;
   }
 }
 
@@ -92,4 +78,28 @@ export function provideCoachmarkStorage(): Provider {
     provide: COACHMARK_STORAGE,
     useFactory: () => new LocalStorageCoachmarkStorage(),
   };
+}
+
+/** Chave usada nos dois backends de storage — mantém os dados compatíveis entre eles. */
+export function storageKey(id: string): string {
+  return `coachmark:${id}:seen`;
+}
+
+/** Compartilhado entre implementações de {@link CoachmarkStorage}: valida o shape antes de confiar no JSON. */
+export function parseStorageRecord(raw: string | null): StorageRecord | null {
+  if (raw === null) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<StorageRecord>;
+    if (
+      typeof parsed.timesShown !== 'number' ||
+      typeof parsed.lastSeenAt !== 'number'
+    ) {
+      return null;
+    }
+
+    return parsed as StorageRecord;
+  } catch {
+    return null;
+  }
 }
