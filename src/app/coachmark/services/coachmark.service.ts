@@ -10,6 +10,7 @@ import { BehaviorSubject, Observable, Subscription } from 'rxjs';
 
 import {
   ArrowSide,
+  CoachmarkActiveFn,
   CoachmarkState,
   CoachmarkStep,
   EMPTY_COACHMARK_STATE,
@@ -32,6 +33,18 @@ const DEFAULT_MAX_TIMES_SHOWN = 3;
  * não encostar visualmente no spotlight.
  */
 const BALLOON_OFFSET = BALLOON_GAP + SPOTLIGHT_PADDING;
+
+interface TargetRegistration {
+  el: ElementRef<HTMLElement>;
+  onActive?: CoachmarkActiveFn;
+}
+
+/** Alvo destacado cujo onActive já foi chamado e aguarda a limpeza. */
+interface ActiveTarget {
+  el: ElementRef<HTMLElement>;
+  fn: CoachmarkActiveFn;
+  cleanup?: () => void;
+}
 
 const POSITIONS: ConnectedPosition[] = [
   // Preferência: balão abaixo do alvo.
@@ -64,11 +77,12 @@ export class CoachmarkService {
   );
   readonly state$: Observable<CoachmarkState> = this.stateSubject.asObservable();
 
-  private readonly targets = new Map<string, ElementRef<HTMLElement>>();
+  private readonly targets = new Map<string, TargetRegistration>();
   private steps: CoachmarkStep[] = [];
   private index = 0;
   private arrowSide: ArrowSide = 'none';
   private targetRect: DOMRect | null = null;
+  private activeTarget?: ActiveTarget;
 
   private spotlightRef?: OverlayRef;
   private balloonRef?: OverlayRef;
@@ -86,8 +100,12 @@ export class CoachmarkService {
 
   // ---------------------------------------------------------------- targets
 
-  registerTarget(key: string, el: ElementRef<HTMLElement>): void {
-    this.targets.set(key, el);
+  registerTarget(
+    key: string,
+    el: ElementRef<HTMLElement>,
+    onActive?: CoachmarkActiveFn,
+  ): void {
+    this.targets.set(key, { el, onActive });
     // Se o alvo da dica atual acabou de aparecer, reposiciona.
     if (this.isOpen && this.currentStep?.targetKey === key) {
       this.applyStep();
@@ -100,9 +118,15 @@ export class CoachmarkService {
    * por outro elemento, seja removida pela instância antiga ao ser destruída.
    */
   unregisterTarget(key: string, el?: ElementRef<HTMLElement>): void {
-    if (el && this.targets.get(key) !== el) return;
+    const registration = this.targets.get(key);
+    if (el && registration?.el !== el) return;
 
     this.targets.delete(key);
+
+    // O alvo animado sumiu (destruído ou re-registrado): encerra a animação.
+    if (registration && this.activeTarget?.el === registration.el) {
+      this.setActiveTarget(undefined);
+    }
   }
 
   // ------------------------------------------------------------------ fluxo
@@ -182,6 +206,8 @@ export class CoachmarkService {
   }
 
   close(): void {
+    this.setActiveTarget(undefined);
+
     // Desinscreve antes de dispose(): o dispose abaixo também aciona
     // detachments(), e não queremos reentrar em close() por causa disso.
     this.overlayDetachSub?.unsubscribe();
@@ -211,9 +237,13 @@ export class CoachmarkService {
   }
 
   private get targetElement(): HTMLElement | null {
+    return this.currentRegistration?.el.nativeElement ?? null;
+  }
+
+  private get currentRegistration(): TargetRegistration | null {
     const key = this.currentStep?.targetKey;
     if (!key) return null;
-    return this.targets.get(key)?.nativeElement ?? null;
+    return this.targets.get(key) ?? null;
   }
 
   private emit(): void {
@@ -270,6 +300,7 @@ export class CoachmarkService {
     // Troca o alvo observado já aqui — sem isso, um resize por layout do novo
     // alvo só seria percebido no próximo scroll/resize da janela.
     this.syncResizeTarget?.();
+    this.syncActiveTarget();
 
     const el = this.targetElement;
 
@@ -306,6 +337,41 @@ export class CoachmarkService {
     this.balloonRef.updatePositionStrategy(strategy);
     this.targetRect = el.getBoundingClientRect();
     this.emit();
+  }
+
+  /**
+   * Chama o onActive do alvo da dica atual e encerra o anterior. Dicas
+   * seguidas no mesmo alvo com a mesma função não reiniciam a animação.
+   */
+  private syncActiveTarget(): void {
+    const registration = this.currentRegistration;
+    const active = this.activeTarget;
+
+    if (
+      active &&
+      active.el === registration?.el &&
+      active.fn === registration.onActive
+    ) {
+      return;
+    }
+
+    this.setActiveTarget(
+      registration?.onActive
+        ? { el: registration.el, fn: registration.onActive }
+        : undefined,
+    );
+  }
+
+  private setActiveTarget(next?: ActiveTarget): void {
+    const previous = this.activeTarget;
+    this.activeTarget = next;
+
+    try {
+      previous?.cleanup?.();
+      if (next) next.cleanup = next.fn() ?? undefined;
+    } catch (error) {
+      console.error('[coachmark] erro em coachmarkTargetActive', error);
+    }
   }
 
   private centeredStrategy(): PositionStrategy {

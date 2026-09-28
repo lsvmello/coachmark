@@ -68,6 +68,38 @@ export class DashboardComponent implements AfterViewInit {
 o storage diz que o tour já foi visto no período, ou quando já existe um tour
 aberto — a ideia é **um tour por tela**, então basta chamar e seguir a vida.
 
+## Animando o alvo
+
+Um alvo pode se animar enquanto estiver destacado — por exemplo, um slider que
+se mexe sozinho para mostrar que pode ser arrastado. Passe uma função em
+`[coachmarkTargetActive]` (opcional); ela é chamada uma vez quando a dica do
+alvo abre e pode devolver uma função de limpeza:
+
+```html
+<input type="range" [value]="zoom" coachmarkTarget="zoom" [coachmarkTargetActive]="animateZoom" />
+```
+
+```ts
+protected readonly animateZoom: CoachmarkActiveFn = () => {
+  const original = this.zoom;
+  const id = setInterval(() => (this.zoom = (this.zoom + 10) % 110), 400);
+  return () => {
+    clearInterval(id);
+    this.zoom = original;
+  };
+};
+```
+
+- A limpeza roda **uma única vez** quando o alvo deixa de ser destacado: troca
+  de dica, `close()`/`finish()`, navegação ou destruição do alvo. É ali que o
+  componente restaura o valor original.
+- Dicas seguidas no mesmo alvo não reiniciam a animação.
+- A função roda dentro da zone do Angular, então timers disparam change
+  detection normalmente.
+- O spotlight bloqueia a página, então o usuário não disputa o controle com a
+  animação. Respeitar `prefers-reduced-motion` fica a cargo do componente.
+- Erros na função ou na limpeza são logados e não interrompem o tour.
+
 ## Pontos de atenção
 
 - **`ngAfterViewInit` é obrigatório.** Antes disso as diretivas ainda não

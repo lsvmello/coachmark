@@ -2,16 +2,20 @@ import { Component, ElementRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { CoachmarkTargetDirective } from '../../components/target/coachmark-target.directive';
+import { CoachmarkActiveFn } from '../../models/coachmark.model';
 import { CoachmarkService } from '../../services/coachmark.service';
 
 @Component({
   standalone: true,
   imports: [CoachmarkTargetDirective],
-  template: `@if (show) {<button [coachmarkTarget]="key"></button>}`,
+  template: `@if (show) {
+    <button [coachmarkTarget]="key" [coachmarkTargetActive]="onActive"></button>
+  }`,
 })
 class HostComponent {
   show = true;
   key = 'filtro-data';
+  onActive?: CoachmarkActiveFn;
 }
 
 describe('CoachmarkTargetDirective', () => {
@@ -36,6 +40,7 @@ describe('CoachmarkTargetDirective', () => {
     expect(coachmarkServiceSpy.registerTarget).toHaveBeenCalledWith(
       'filtro-data',
       expect.anything(),
+      undefined,
     );
   });
 
@@ -53,6 +58,39 @@ describe('CoachmarkTargetDirective', () => {
     expect(coachmarkServiceSpy.registerTarget).toHaveBeenCalledWith(
       'resumo',
       expect.anything(),
+      undefined,
+    );
+  });
+
+  it('passes coachmarkTargetActive along when registering', () => {
+    const fixture = TestBed.createComponent(HostComponent);
+    const onActive = jest.fn();
+    fixture.componentInstance.onActive = onActive;
+    fixture.detectChanges();
+
+    expect(coachmarkServiceSpy.registerTarget).toHaveBeenCalledWith(
+      'filtro-data',
+      expect.anything(),
+      onActive,
+    );
+  });
+
+  it('re-registers when coachmarkTargetActive changes at runtime', () => {
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.detectChanges();
+
+    const onActive = jest.fn();
+    fixture.componentInstance.onActive = onActive;
+    fixture.detectChanges();
+
+    expect(coachmarkServiceSpy.unregisterTarget).toHaveBeenCalledWith(
+      'filtro-data',
+      expect.anything(),
+    );
+    expect(coachmarkServiceSpy.registerTarget).toHaveBeenLastCalledWith(
+      'filtro-data',
+      expect.anything(),
+      onActive,
     );
   });
 

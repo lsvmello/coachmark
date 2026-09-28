@@ -2,6 +2,7 @@ import { Component, AfterViewInit, inject } from '@angular/core';
 
 import { CoachmarkService } from '../coachmark/services/coachmark.service';
 import { CoachmarkTargetDirective } from '../coachmark/components/target/coachmark-target.directive';
+import { CoachmarkActiveFn } from '../coachmark/models/coachmark.model';
 
 @Component({
   selector: 'app-demo-page',
@@ -13,6 +14,18 @@ import { CoachmarkTargetDirective } from '../coachmark/components/target/coachma
 export class DemoPageComponent implements AfterViewInit {
   private readonly coachmarkService = inject(CoachmarkService);
 
+  protected zoom = 50;
+
+  /** Mexe o slider enquanto ele está destacado e restaura o valor ao sair. */
+  protected readonly animateZoom: CoachmarkActiveFn = () => {
+    const original = this.zoom;
+    const id = setInterval(() => (this.zoom = (this.zoom + 10) % 110), 400);
+    return () => {
+      clearInterval(id);
+      this.zoom = original;
+    };
+  };
+
   ngAfterViewInit(): void {
     this.startTour();
   }
@@ -23,7 +36,7 @@ export class DemoPageComponent implements AfterViewInit {
 
   private startTour(options: { force?: boolean } = {}): void {
     this.coachmarkService.start(
-      'dashboard-v1',
+      'dashboard-v2',
       [
         {
           title: 'Bem-vindo ao novo painel',
@@ -39,6 +52,11 @@ export class DemoPageComponent implements AfterViewInit {
           title: 'Exporte quando quiser',
           description: 'Baixe um resumo em PDF do período selecionado.',
           targetKey: 'exportar',
+        },
+        {
+          title: 'Ajuste o zoom',
+          description: 'Arraste para aproximar ou afastar o gráfico.',
+          targetKey: 'zoom',
         },
         {
           title: 'Acompanhe o resumo',

@@ -415,4 +415,179 @@ describe('CoachmarkService', () => {
     expect(closeSpy).toHaveBeenCalledTimes(1);
     closeSpy.mockRestore();
   });
+  describe('coachmarkTargetActive', () => {
+    const TWO_TARGETS: CoachmarkStep[] = [
+      { title: 'A', description: 'A', targetKey: 'a' },
+      { title: 'B', description: 'B', targetKey: 'b' },
+    ];
+
+    it('calls onActive when its step becomes active, and not before', async () => {
+      const onActive = jest.fn();
+      service.registerTarget('alvo', makeTargetRef(), onActive);
+
+      await service.start('tour', STEPS);
+      expect(onActive).not.toHaveBeenCalled();
+
+      service.next();
+      expect(onActive).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup when moving to another target', async () => {
+      const cleanup = jest.fn();
+      const onActiveB = jest.fn();
+      service.registerTarget('a', makeTargetRef(), () => cleanup);
+      service.registerTarget('b', makeTargetRef(), onActiveB);
+
+      await service.start('tour', TWO_TARGETS);
+      service.next();
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(onActiveB).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup when moving to a step without target', async () => {
+      const cleanup = jest.fn();
+      service.registerTarget('alvo', makeTargetRef(), () => cleanup);
+
+      await service.start('tour', STEPS);
+      service.next();
+      service.previous();
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup once on close()', async () => {
+      const cleanup = jest.fn();
+      service.registerTarget('a', makeTargetRef(), () => cleanup);
+
+      await service.start('tour', TWO_TARGETS);
+      service.close();
+      service.close();
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup on finish()', async () => {
+      const cleanup = jest.fn();
+      service.registerTarget('a', makeTargetRef(), () => cleanup);
+
+      await service.start('tour', TWO_TARGETS);
+      await service.finish();
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup when the overlay is disposed outside of close()', async () => {
+      const cleanup = jest.fn();
+      service.registerTarget('a', makeTargetRef(), () => cleanup);
+
+      await service.start('tour', TWO_TARGETS);
+      const internal = service as unknown as { balloonRef: { dispose: () => void } };
+      internal.balloonRef.dispose();
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the cleanup when the active target unregisters', async () => {
+      const cleanup = jest.fn();
+      const targetRef = makeTargetRef();
+      service.registerTarget('a', targetRef, () => cleanup);
+
+      await service.start('tour', TWO_TARGETS);
+      service.unregisterTarget('a', targetRef);
+
+      expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not run the cleanup when an inactive target unregisters', async () => {
+      const cleanup = jest.fn();
+      const targetB = makeTargetRef();
+      service.registerTarget('a', makeTargetRef(), () => cleanup);
+      service.registerTarget('b', targetB, jest.fn());
+
+      await service.start('tour', TWO_TARGETS);
+      service.unregisterTarget('b', targetB);
+
+      expect(cleanup).not.toHaveBeenCalled();
+    });
+
+    it('does not restart when consecutive steps share the same target', async () => {
+      const cleanup = jest.fn();
+      const onActive = jest.fn(() => cleanup);
+      service.registerTarget('a', makeTargetRef(), onActive);
+
+      await service.start('tour', [
+        { title: '1', description: '1', targetKey: 'a' },
+        { title: '2', description: '2', targetKey: 'a' },
+      ]);
+      service.next();
+
+      expect(onActive).toHaveBeenCalledTimes(1);
+      expect(cleanup).not.toHaveBeenCalled();
+    });
+
+    it('calls onActive when the target registers after its step opened', async () => {
+      const onActive = jest.fn();
+      await service.start('tour', STEPS);
+      service.next();
+
+      service.registerTarget('alvo', makeTargetRef(), onActive);
+
+      expect(onActive).toHaveBeenCalledTimes(1);
+    });
+
+    it('restarts when the active target re-registers with a different function', async () => {
+      const firstCleanup = jest.fn();
+      const second = jest.fn();
+      const targetRef = makeTargetRef();
+      service.registerTarget('a', targetRef, () => firstCleanup);
+
+      await service.start('tour', TWO_TARGETS);
+      service.registerTarget('a', targetRef, second);
+
+      expect(firstCleanup).toHaveBeenCalledTimes(1);
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts an onActive that returns nothing', async () => {
+      service.registerTarget('a', makeTargetRef(), () => undefined);
+
+      await service.start('tour', TWO_TARGETS);
+
+      expect(() => service.next()).not.toThrow();
+    });
+
+    it('keeps the tour working when onActive throws', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      service.registerTarget('b', makeTargetRef(), () => {
+        throw new Error('onActive');
+      });
+
+      await service.start('tour', TWO_TARGETS);
+      service.next();
+      expect(latestState().index).toBe(1);
+
+      service.close();
+      expect(service.isOpen).toBe(false);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      errorSpy.mockRestore();
+    });
+
+    it('keeps the tour working when the cleanup throws, skipping the next onActive', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const onActiveB = jest.fn();
+      service.registerTarget('a', makeTargetRef(), () => () => {
+        throw new Error('cleanup');
+      });
+      service.registerTarget('b', makeTargetRef(), onActiveB);
+
+      await service.start('tour', TWO_TARGETS);
+      service.next();
+
+      expect(latestState().index).toBe(1);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(onActiveB).not.toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+  });
 });

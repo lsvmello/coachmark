@@ -14,6 +14,18 @@
     Exportar relatório
   </button>
 
+  <label coachmarkTarget="zoom" [coachmarkTargetActive]="animateZoom" class="dashboard__zoom">
+    Zoom do gráfico
+    <input
+      type="range"
+      min="0"
+      max="100"
+      [value]="zoom"
+      (input)="zoom = +$any($event.target).value"
+    />
+    <output>{{ zoom }}%</output>
+  </label>
+
   <section class="dashboard__summary">
     <h2>Resumo do período 1</h2>
     <dl>

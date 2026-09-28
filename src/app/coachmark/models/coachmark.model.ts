@@ -16,6 +16,14 @@ export interface CoachmarkStep {
   targetKey?: string;
 }
 
+/**
+ * Chamada uma vez quando o alvo passa a ser o destacado. Pode iniciar uma
+ * animação e devolver uma função de limpeza, que o serviço chama uma única vez
+ * quando o alvo deixa de ser destacado. É na limpeza que o componente pode
+ * restaurar o estado original.
+ */
+export type CoachmarkActiveFn = () => void | (() => void);
+
 /** Lado do balão em que a seta aparece. 'none' = balão centralizado. */
 export type ArrowSide = 'top' | 'bottom' | 'none';
 
