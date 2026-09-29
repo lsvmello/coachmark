@@ -17,6 +17,7 @@ import {
   SPOTLIGHT_PADDING,
 } from '../models/coachmark.model';
 import { COACHMARK_STORAGE } from './coachmark-storage';
+import { inertOutside } from './coachmark-inert';
 import { CoachmarkBalloonComponent } from '../components/balloon/coachmark-balloon.component';
 import { CoachmarkSpotlightComponent } from '../components/spotlight/coachmark-spotlight.component';
 
@@ -83,6 +84,7 @@ export class CoachmarkService {
   private arrowSide: ArrowSide = 'none';
   private targetRect: DOMRect | null = null;
   private activeTarget?: ActiveTarget;
+  private restoreInert?: () => void;
 
   private spotlightRef?: OverlayRef;
   private balloonRef?: OverlayRef;
@@ -126,6 +128,11 @@ export class CoachmarkService {
     // O alvo animado sumiu (destruído ou re-registrado): encerra a animação.
     if (registration && this.activeTarget?.el === registration.el) {
       this.setActiveTarget(undefined);
+    }
+
+    // O alvo destacado sumiu: o caminho dele não precisa mais ficar acessível.
+    if (this.isOpen && this.currentStep?.targetKey === key) {
+      this.updateInert();
     }
   }
 
@@ -207,6 +214,11 @@ export class CoachmarkService {
 
   close(): void {
     this.setActiveTarget(undefined);
+
+    // Antes do dispose(): o cdkTrapFocus devolve o foco ao elemento anterior
+    // ao ser destruído, e focus() num elemento inert falha em silêncio.
+    this.restoreInert?.();
+    this.restoreInert = undefined;
 
     // Desinscreve antes de dispose(): o dispose abaixo também aciona
     // detachments(), e não queremos reentrar em close() por causa disso.
@@ -301,6 +313,7 @@ export class CoachmarkService {
     // alvo só seria percebido no próximo scroll/resize da janela.
     this.syncResizeTarget?.();
     this.syncActiveTarget();
+    this.updateInert();
 
     const el = this.targetElement;
 
@@ -360,6 +373,16 @@ export class CoachmarkService {
         ? { el: registration.el, fn: registration.onActive }
         : undefined,
     );
+  }
+
+  /** Recalcula o que fica acessível para a dica atual. */
+  private updateInert(): void {
+    this.restoreInert?.();
+    this.restoreInert = inertOutside([
+      this.targetElement,
+      this.balloonRef?.hostElement,
+      this.spotlightRef?.hostElement,
+    ]);
   }
 
   private setActiveTarget(next?: ActiveTarget): void {

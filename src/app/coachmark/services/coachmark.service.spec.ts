@@ -590,4 +590,88 @@ describe('CoachmarkService', () => {
       errorSpy.mockRestore();
     });
   });
+  describe('inert', () => {
+    const PAGE_STEPS: CoachmarkStep[] = [
+      { title: 'A', description: 'A', targetKey: 'a' },
+      { title: 'B', description: 'B', targetKey: 'b' },
+    ];
+    let page: HTMLElement;
+    let targetA: ElementRef<HTMLElement>;
+    let targetB: ElementRef<HTMLElement>;
+    let other: HTMLElement;
+
+    beforeEach(() => {
+      targetA = makeTargetRef();
+      targetB = makeTargetRef();
+      other = document.createElement('p');
+      page = document.createElement('main');
+      page.append(targetA.nativeElement, targetB.nativeElement, other);
+      document.body.append(page);
+
+      service.registerTarget('a', targetA);
+      service.registerTarget('b', targetB);
+    });
+
+    afterEach(() => {
+      service.close();
+      page.remove();
+    });
+
+    it('makes the page inert except for the current target and the overlays', async () => {
+      await service.start('tour', PAGE_STEPS);
+
+      expect(other.hasAttribute('inert')).toBe(true);
+      expect(targetB.nativeElement.hasAttribute('inert')).toBe(true);
+      expect(targetA.nativeElement.hasAttribute('inert')).toBe(false);
+      expect(page.hasAttribute('inert')).toBe(false);
+      expect(document.querySelector('.cdk-overlay-container')!.hasAttribute('inert')).toBe(false);
+    });
+
+    it('moves the reachable path to the next target', async () => {
+      await service.start('tour', PAGE_STEPS);
+      service.next();
+
+      expect(targetA.nativeElement.hasAttribute('inert')).toBe(true);
+      expect(targetB.nativeElement.hasAttribute('inert')).toBe(false);
+    });
+
+    it('re-applies inert when the current target unregisters', async () => {
+      await service.start('tour', PAGE_STEPS);
+      service.unregisterTarget('a', targetA);
+
+      expect(page.hasAttribute('inert')).toBe(true);
+    });
+
+    it('leaves no inert behind after close()', async () => {
+      await service.start('tour', PAGE_STEPS);
+      service.close();
+
+      expect(document.querySelectorAll('[inert]')).toHaveLength(0);
+    });
+
+    it('keeps elements that were already inert after close()', async () => {
+      other.setAttribute('inert', '');
+
+      await service.start('tour', PAGE_STEPS);
+      service.close();
+
+      expect(other.hasAttribute('inert')).toBe(true);
+      expect(targetB.nativeElement.hasAttribute('inert')).toBe(false);
+    });
+
+    it('removes inert before disposing the overlays, so focus can be restored', async () => {
+      await service.start('tour', PAGE_STEPS);
+      const internal = service as unknown as { balloonRef: { dispose: () => void } };
+      let inertAtDispose = -1;
+      const dispose = internal.balloonRef.dispose.bind(internal.balloonRef);
+      internal.balloonRef.dispose = () => {
+        inertAtDispose = document.querySelectorAll('[inert]').length;
+        dispose();
+      };
+
+      service.close();
+
+      expect(inertAtDispose).toBe(0);
+    });
+  });
 });

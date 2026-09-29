@@ -102,6 +102,11 @@ protected readonly animateZoom: CoachmarkActiveFn = () => {
 
 ## Pontos de atenção
 
+- **Acessibilidade.** Enquanto o tour está aberto, o resto da página recebe
+  `inert`: leitores de tela e o teclado só alcançam o balão e o alvo da dica
+  atual. Ao fechar, o `inert` é removido só de onde o coachmark colocou —
+  elementos que já eram `inert` antes do tour continuam assim.
+
 - **`ngAfterViewInit` é obrigatório.** Antes disso as diretivas ainda não
   registraram os alvos. Se o alvo estiver atrás de um `@if` ou de um request,
   o serviço reposiciona sozinho quando ele se registra.
